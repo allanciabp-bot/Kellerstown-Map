@@ -105,9 +105,32 @@ const CATEGORIES = {
   "#d8da1e": "Waypoint"        // You are here! (its star is part of the label path)
 };
 
+// Name a shape in Inkscape (select it, Ctrl+Shift+O, type in the *ID* box) with one of
+// these prefixes followed by "-" or "_", and it lands in that category automatically.
+// e.g.  waypoint-star   access_3   pin-snake
+// Use the ID box, NOT the Label box - Inkscape labels are stripped when exporting.
+const ID_PREFIX = {
+  "sewage":   "Sewage access points",
+  "union":    "Union",
+  "houses":   "Houses",
+  "gov":      "City government",
+  "misc":     "Misc.",
+  "shops":    "Shops & businesses",
+  "streets":  "Streets & transit",
+  "swing":    "Swing Gang",
+  "waypoint": "Waypoint",
+  "pin":      "__pinned__"        // always visible, never listed in the menu
+};
+
+// Which category an element's id asks for, or null if its id says nothing.
+const idCategory = el => {
+  const id = (el.id || '').toLowerCase();
+  const head = id.split(/[-_]/)[0];
+  return Object.prototype.hasOwnProperty.call(ID_PREFIX, head) ? ID_PREFIX[head] : null;
+};
+
 // Final word on individual shapes, when neither colour nor position can decide.
 // id -> category. Use the "Identify" button to find an id, then add a line here.
-
 const OVERRIDES = {
   "path21030-3": "Waypoint",
   "rect21020-0-5-4-3": "Shops & businesses",
@@ -161,6 +184,7 @@ fetch(SVG_FILE)
 
 function build() {
   const pinned = el => {
+    if (idCategory(el) === "__pinned__") return true;
     if (PINNED_LAYERS.some(id => el.closest('#' + id))) return true;
     const owner = el.closest('[aria-label]');
     if (!owner) return false;
@@ -241,16 +265,25 @@ function build() {
     }
   }
 
-  // 3b. explicit overrides win over both colour and proximity
-  for (const [id, cat] of Object.entries(OVERRIDES)) {
-    const el = svg.querySelector('#' + CSS.escape(id));
-    if (!el) { console.warn('OVERRIDES: no element with id', id); continue; }
+  // 3a. ids named in Inkscape beat colour and proximity
+  const place = (el, cat) => {
     for (const [, g] of groups) {
       const i = g.els.indexOf(el);
       if (i >= 0) g.els.splice(i, 1);
     }
     if (!groups.has(cat)) groups.set(cat, { name: cat, colour: "#888", els: [], labels: [] });
     groups.get(cat).els.push(el);
+  };
+  svg.querySelectorAll('[id]').forEach(el => {
+    const cat = idCategory(el);
+    if (cat && cat !== "__pinned__") place(el, cat);
+  });
+
+  // 3b. explicit overrides win over everything
+  for (const [id, cat] of Object.entries(OVERRIDES)) {
+    const el = svg.querySelector('#' + CSS.escape(id));
+    if (!el) { console.warn('OVERRIDES: no element with id', id); continue; }
+    place(el, cat);
   }
 
   // 4. menu: alphabetical, "Other markers" last
@@ -302,7 +335,8 @@ stage.addEventListener('click', e => {
     'id: ' + (hit.id || '(none)') +
     '\nfill: ' + getComputedStyle(hit).fill +
     '\ncategory: ' + cat +
-    (owner ? '\nlabel: ' + owner.getAttribute('aria-label').replace(/\s+/g, ' ') : '');
+    (owner ? '\nlabel: ' + owner.getAttribute('aria-label').replace(/\s+/g, ' ') : '') +
+    '\n\nto move it: rename this id in Inkscape to e.g. waypoint-1';
 });
 
 document.getElementById('burger').onclick = () => document.body.classList.toggle('menu');
