@@ -26,6 +26,10 @@
   .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .ct{opacity:.5;font-size:12px;font-variant-numeric:tabular-nums}
   .cat.off .nm,.cat.off .ct{opacity:.4}
+  #readout{display:none;padding:8px 14px;font:11.5px/1.5 ui-monospace,Menlo,monospace;
+           background:#fffbe6;border-bottom:1px solid var(--line);word-break:break-all}
+  body.ident #readout{display:block}
+  body.ident #stage{cursor:crosshair}
   #foot{padding:9px 14px;border-top:1px solid var(--line);font-size:11.5px;opacity:.6}
 
   #stage{flex:1;position:relative;overflow:hidden;cursor:grab;touch-action:none}
@@ -58,6 +62,10 @@
       <button id="all">Show all</button>
       <button id="none">Hide all</button>
     </div>
+    <div id="master" style="border-top:0">
+      <button id="ident">Identify: off</button>
+    </div>
+    <div id="readout"></div>
     <div id="cats"></div>
     <div id="foot">drag to pan · scroll to zoom</div>
   </aside>
@@ -95,6 +103,12 @@ const CATEGORIES = {
   "#ffff00": "Misc.",          // Fifth Revelation?
   "#800080": "Misc.",          // was its own "F" category
   "#d8da1e": "Waypoint"        // You are here! (its star is part of the label path)
+};
+
+// Final word on individual shapes, when neither colour nor position can decide.
+// id -> category. Use the "Identify" button to find an id, then add a line here.
+const OVERRIDES = {
+  "path21030-3": "Waypoint"      // the star beside "You are here!"
 };
 
 const PLAQUE = "#1a1a1a";                     // shared colour of the black label plaques
@@ -219,7 +233,19 @@ function build() {
     }
   }
 
-  // 4. menu: labelled categories first (biggest first), "Other markers" last
+  // 3b. explicit overrides win over both colour and proximity
+  for (const [id, cat] of Object.entries(OVERRIDES)) {
+    const el = svg.querySelector('#' + CSS.escape(id));
+    if (!el) { console.warn('OVERRIDES: no element with id', id); continue; }
+    for (const [, g] of groups) {
+      const i = g.els.indexOf(el);
+      if (i >= 0) g.els.splice(i, 1);
+    }
+    if (!groups.has(cat)) groups.set(cat, { name: cat, colour: "#888", els: [], labels: [] });
+    groups.get(cat).els.push(el);
+  }
+
+  // 4. menu: alphabetical, "Other markers" last
   [...groups.values()]
     .sort((a, b) => {
       const catchAll = n => n === "Other markers";        // always last
@@ -251,6 +277,26 @@ function setAll(on) {
 }
 document.getElementById('all').onclick = () => setAll(true);
 document.getElementById('none').onclick = () => setAll(false);
+const identBtn = document.getElementById('ident'), readout = document.getElementById('readout');
+identBtn.onclick = () => {
+  const on = document.body.classList.toggle('ident');
+  identBtn.textContent = 'Identify: ' + (on ? 'on' : 'off');
+  readout.textContent = on ? 'Click any label, star or shape on the map.' : '';
+};
+stage.addEventListener('click', e => {
+  if (!document.body.classList.contains('ident')) return;
+  const hit = document.elementsFromPoint(e.clientX, e.clientY).find(el => el.ownerSVGElement);
+  if (!hit) return;
+  let cat = '(not in any category)';
+  for (const [n, g] of groups) if (g.els.includes(hit)) cat = n;
+  const owner = hit.closest('[aria-label]');
+  readout.textContent =
+    'id: ' + (hit.id || '(none)') +
+    '\nfill: ' + getComputedStyle(hit).fill +
+    '\ncategory: ' + cat +
+    (owner ? '\nlabel: ' + owner.getAttribute('aria-label').replace(/\s+/g, ' ') : '');
+});
+
 document.getElementById('burger').onclick = () => document.body.classList.toggle('menu');
 
 /* ---------- pan & zoom ---------- */
