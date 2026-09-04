@@ -14,6 +14,12 @@
         display:flex;flex-direction:column;z-index:20}
   #side h1{margin:0;padding:14px 14px 10px;font-size:15px;font-weight:600;
            border-bottom:1px solid var(--line)}
+  #maps{display:flex;flex-direction:column;gap:5px;padding:10px 14px;
+        border-bottom:1px solid var(--line)}
+  #maps button{padding:8px 10px;font:inherit;font-size:13px;text-align:left;cursor:pointer;
+               border:1px solid var(--line);border-radius:6px;background:#fff}
+  #maps button.on{background:#333;color:#fff;border-color:#333}
+  #maps button:hover:not(.on){background:#eceae6}
   #master{padding:10px 14px;border-bottom:1px solid var(--line);display:flex;gap:8px}
   #master button{flex:1;padding:7px 0;font:inherit;font-size:13px;cursor:pointer;
                  border:1px solid var(--line);border-radius:6px;background:#fff}
@@ -58,6 +64,7 @@
 <div id="wrap">
   <aside id="side">
     <h1>Kellerstown</h1>
+    <div id="maps"></div>
     <div id="master">
       <button id="all">Show all</button>
       <button id="none">Hide all</button>
@@ -81,29 +88,11 @@
 <button id="burger" title="Categories">&#9776;</button>
 
 <script>
-const SVG_FILE = "kellerstown_locations_of_interest.svg";
 
 // Rename or merge categories here. Key = a fill colour used in the map.
 // Two colours given the SAME name merge into one row in the menu.
 // Any annotation colour not listed is named after its own label, or lands in
 // "Other markers" if it has no label at all - nothing is ever silently dropped.
-const CATEGORIES = {
-  "#cf302d": "Sewage access points",
-  "#e0269a": "Shops & businesses",
-  "#d35f5f": "Streets & transit",
-  "#ff6600": "City government",
-  "#808000": "Houses",
-  "#5e5eff": "Union",
-  "#d2a153": "Swing Gang",
-  "#f4de80": "Misc.",
-  "#ffe680": "Misc.",
-  "#2ca02c": "Misc.",
-  "#008080": "Misc.",
-  "#3b9441": "Misc.",
-  "#ffff00": "Misc.",          // Fifth Revelation?
-  "#800080": "Misc.",          // was its own "F" category
-  "#d8da1e": "Waypoint"        // You are here! (its star is part of the label path)
-};
 
 // Name a shape in Inkscape (select it, Ctrl+Shift+O, type in the *ID* box) with one of
 // these prefixes followed by "-" or "_", and it lands in that category automatically.
@@ -131,7 +120,44 @@ const idCategory = el => {
 
 // Final word on individual shapes, when neither colour nor position can decide.
 // id -> category. Use the "Identify" button to find an id, then add a line here.
-const OVERRIDES = {
+// Neighbourhoods map: each district's fill colour is paired with its label so a
+// single row toggles the name and the shading of that neighbourhood together.
+const NEIGHBOURHOODS = {
+  "#2500b5": "Per Fess",     "#88aa00": "Per Fess",
+  "#165050": "Per Pale",     "#e9afaf": "Per Pale",
+  "#2c719f": "Oskarsburgh",  "#c87137": "Oskarsburgh",
+  "#124242": "Mayorate",     "#c83737": "Mayorate",
+  "#a00000": "Refinery Row", "#008080": "Refinery Row",
+  "#0028ff": "Altkeller",    "#ffd700": "Altkeller",
+  "#ffff00": "Altkeller",
+  "#2c43a0": "Per Bend",     "#d3bc5f": "Per Bend"
+};
+
+// Each map carries its own category and override tables, because the same colour
+// means different things on different maps (#008080 is Iron Orangerie on the
+// Locations map but a whole district on the Neighbourhoods one).
+const MAPS = [
+  {
+    label: "Locations of Interest",
+    file: "kellerstown_locations_of_interest.svg",
+    categories: {
+  "#cf302d": "Sewage access points",
+  "#e0269a": "Shops & businesses",
+  "#d35f5f": "Streets & transit",
+  "#ff6600": "City government",
+  "#808000": "Houses",
+  "#5e5eff": "Union",
+  "#d2a153": "Swing Gang",
+  "#f4de80": "Misc.",
+  "#ffe680": "Misc.",
+  "#2ca02c": "Misc.",
+  "#008080": "Misc.",
+  "#3b9441": "Misc.",
+  "#ffff00": "Misc.",          // Fifth Revelation?
+  "#800080": "Misc.",          // was its own "F" category
+      "#d8da1e": "Waypoint"    // You are here! (its star is part of the label path)
+    },
+    overrides: {
   "path21030-3": "Waypoint",
   "rect21020-0-5-4-3": "Shops & businesses",
   "path21001": "City government",
@@ -139,8 +165,20 @@ const OVERRIDES = {
   "path21007": "City government",
   "path21005": "City government",
   "path21006": "City government",
-  "path21030-3-3-1-7": "Sewage access points"
-};
+      "path21030-3-3-1-7": "Sewage access points"
+    }
+  },
+  {
+    label: "Neighbourhoods",
+    file: "kellerstown_neighborhoods.svg",
+    categories: NEIGHBOURHOODS,
+    overrides: {}
+  }
+];
+
+let CATEGORIES = MAPS[0].categories;      // swapped as maps are switched
+let OVERRIDES  = MAPS[0].overrides;
+
 
 const PLAQUE = "#1a1a1a";                     // shared colour of the black label plaques
 const BASE = new Set([                        // the map's own palette - never a category
@@ -156,8 +194,9 @@ const PINNED_LABELS = [                                // matched against aria-l
 
 const stage = document.getElementById('stage');
 const catsEl = document.getElementById('cats');
+const mapBar = document.getElementById('maps');
 let svg, scale = 1, x = 0, y = 0, base = 1;
-const groups = new Map();   // colour -> {name, els:[], labels:[]}
+const groups = new Map();   // category name -> {name, colour, els, labels}
 
 // A colour arrives either as style="...fill:#abc123..." or as fill="#abc123".
 // Only an element's OWN fill counts, never an inherited one.
@@ -169,18 +208,45 @@ const fillOf = el => {
   return a && /^#[0-9a-fA-F]{6}$/.test(a) ? a.toLowerCase() : null;
 };
 
-fetch(SVG_FILE)
-  .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
-  .then(txt => {
-    const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
-    svg = document.importNode(doc.documentElement, true);
-    svg.removeAttribute('width'); svg.removeAttribute('height');
-    stage.insertBefore(svg, stage.firstChild);
-    document.getElementById('load').remove();
-    build();
-    fit();
-  })
-  .catch(e => { document.getElementById('load').textContent = "Could not load map (" + e.message + ")"; });
+let currentMap = -1;
+
+function loadMap(i) {
+  if (i === currentMap) return;
+  const m = MAPS[i];
+  CATEGORIES = m.categories;
+  OVERRIDES  = m.overrides;
+  [...mapBar.children].forEach((b, j) => b.classList.toggle('on', j === i));
+
+  const old = stage.querySelector('svg');
+  if (old) old.remove();
+  groups.clear();
+  catsEl.textContent = '';
+  const note = document.createElement('div');
+  note.id = 'load'; note.textContent = 'Loading map...';
+  stage.insertBefore(note, stage.firstChild);
+
+  fetch(m.file)
+    .then(r => { if (!r.ok) throw new Error(r.status); return r.text(); })
+    .then(txt => {
+      const doc = new DOMParser().parseFromString(txt, "image/svg+xml");
+      svg = document.importNode(doc.documentElement, true);
+      svg.removeAttribute('width'); svg.removeAttribute('height');
+      stage.insertBefore(svg, stage.firstChild);
+      note.remove();
+      currentMap = i;
+      build();
+      fit();
+    })
+    .catch(e => { note.textContent = "Could not load map (" + e.message + ")"; });
+}
+
+MAPS.forEach((m, i) => {
+  const b = document.createElement('button');
+  b.textContent = m.label;
+  b.onclick = () => loadMap(i);
+  mapBar.appendChild(b);
+});
+loadMap(0);
 
 function build() {
   const pinned = el => {
@@ -344,8 +410,13 @@ document.getElementById('burger').onclick = () => document.body.classList.toggle
 /* ---------- pan & zoom ---------- */
 const draw = () => { svg.style.transform = `translate(${x}px,${y}px) scale(${scale})`; };
 
+let fitted = false;
 function fit() {
   if (!svg) return;
+  // A tab opened in the background has a zero-size stage; fitting then would
+  // scale the map to nothing. Bail and let the ResizeObserver retry.
+  if (!stage.clientWidth || !stage.clientHeight) { fitted = false; return; }
+  fitted = true;
   const w = 870.618, h = 779;
   base = Math.min(stage.clientWidth / w, stage.clientHeight / h);
   scale = base;
@@ -361,6 +432,9 @@ function zoomAt(cx, cy, k) {
 const center = f => zoomAt(stage.clientWidth / 2, stage.clientHeight / 2, f);
 
 window.addEventListener('resize', fit);
+// Re-fit when the stage first gains a size (background tab, pane reopened, etc.)
+new ResizeObserver(() => { if (!fitted) fit(); }).observe(stage);
+document.addEventListener('visibilitychange', () => { if (!fitted) fit(); });
 document.getElementById('in').onclick = () => center(1.4);
 document.getElementById('out').onclick = () => center(1 / 1.4);
 document.getElementById('fit').onclick = fit;
