@@ -77,7 +77,7 @@
     <div id="foot">drag to pan · scroll to zoom</div>
   </aside>
   <div id="stage">
-    <div id="load">Loading map…</div>
+    <div id="load"></div>
     <div id="zoom">
       <button id="out" title="Zoom out">&minus;</button>
       <button id="fit" title="Fit to screen">&#9634;</button>
@@ -222,7 +222,7 @@ function loadMap(i) {
   groups.clear();
   catsEl.textContent = '';
   const note = document.createElement('div');
-  note.id = 'load'; note.textContent = 'Loading map...';
+  note.id = 'load'; note.textContent = '';
   stage.insertBefore(note, stage.firstChild);
 
   fetch(m.file)
